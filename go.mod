@@ -1,4 +1,4 @@
-module github.com/aggregator-cloud/Rooms
+module github.com/aggregator-cloud/rooms
 
 go 1.24.0
 
