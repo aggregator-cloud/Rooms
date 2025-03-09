@@ -95,18 +95,15 @@ func (r *Room) AddStream(stream Stream, memberTypes ...MemberType) {
 }
 
 func (r *Room) RemoveStream(stream Stream) error {
-	// Lock in consistent order with other methods
 	r.membersMu.Lock()
 	r.streamsMu.Lock()
 	defer r.streamsMu.Unlock()
 	defer r.membersMu.Unlock()
 
-	// Check if stream exists first
 	if _, exists := r.streams[stream.ID()]; !exists {
 		return errors.New("stream not found")
 	}
 
-	// Remove stream from all members
 	var errs []error
 	for _, member := range r.members {
 		if err := member.RemoveStream(stream); err != nil {
@@ -114,10 +111,8 @@ func (r *Room) RemoveStream(stream Stream) error {
 		}
 	}
 
-	// Remove the stream regardless of member errors
 	delete(r.streams, stream.ID())
 
-	// Return combined errors if any occurred
 	if len(errs) > 0 {
 		return errors.Join(errs...)
 	}
