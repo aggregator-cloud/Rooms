@@ -1,88 +1,141 @@
 package rooms
 
 import (
+	"errors"
 	"maps"
+	"slices"
 	"sync"
 )
 
+type RoomStream struct {
+	Stream
+	RecipientTypes []MemberType
+}
+
+func NewRoomStream(stream Stream, recipientTypes ...MemberType) *RoomStream {
+	return &RoomStream{
+		Stream:         stream,
+		RecipientTypes: recipientTypes,
+	}
+}
+
 type Room struct {
-	ID        string
-	Streams    map[string]Stream
-	streamsMu  sync.Mutex
-	Members   map[string]Member
+	id        string
+	streams   map[string]RoomStream
+	streamsMu sync.Mutex
+	members   map[string]Member
 	membersMu sync.Mutex
 }
 
 func NewRoom(id string) *Room {
 	return &Room{
-		ID:        id,
-		Streams:    make(map[string]Stream),
-		streamsMu:  sync.Mutex{},
-		Members:   make(map[string]Member),
+		id:        id,
+		streams:   make(map[string]RoomStream),
+		streamsMu: sync.Mutex{},
+		members:   make(map[string]Member),
 		membersMu: sync.Mutex{},
 	}
+}
+
+func (r *Room) ID() string {
+	return r.id
 }
 
 func (r *Room) AddMember(member Member) {
 	r.membersMu.Lock()
 	defer r.membersMu.Unlock()
-	r.Members[member.ID()] = member
+	r.members[member.ID()] = member
 
 	// add streams to viewers
-	if viewer, ok := member.(*RoomViewerMember); ok {
-		for _, stream := range r.GetStreams() {
-			viewer.AddStream(stream)
+	for _, stream := range r.GetStreams() {
+		if !slices.Contains(stream.RecipientTypes, member.Type()) && len(stream.RecipientTypes) > 0 {
+			continue
 		}
+		member.AddStream(stream.Stream)
 	}
 }
 
 func (r *Room) RemoveMember(member Member) {
 	r.membersMu.Lock()
 	defer r.membersMu.Unlock()
-	delete(r.Members, member.ID())
+	delete(r.members, member.ID())
 }
 
 func (r *Room) GetMembers() []Member {
 	r.membersMu.Lock()
 	defer r.membersMu.Unlock()
-	members := make([]Member, 0, len(r.Members))
-	for _, member := range r.Members {
+	members := make([]Member, 0, len(r.members))
+	for _, member := range r.members {
 		members = append(members, member)
 	}
 	return members
 }
 
-func (r *Room) AddStream(stream Stream) {
-	r.streamsMu.Lock()
-	defer r.streamsMu.Unlock()
-	r.Streams[stream.ID()] = stream
+func (r *Room) CountMembers() int {
 	r.membersMu.Lock()
 	defer r.membersMu.Unlock()
-	for _, member := range r.Members {
-		if viewer, ok := member.(*RoomViewerMember); ok {
-			viewer.AddStream(stream)
+	return len(r.members)
+}
+
+func (r *Room) AddStream(stream Stream, memberTypes ...MemberType) {
+	r.streamsMu.Lock()
+	defer r.streamsMu.Unlock()
+	roomStream := NewRoomStream(stream, memberTypes...)
+	r.streams[stream.ID()] = *roomStream
+	r.membersMu.Lock()
+	defer r.membersMu.Unlock()
+	lenMemberTypes := len(memberTypes)
+	for _, member := range r.members {
+		mType := member.Type()
+		if lenMemberTypes > 0 && !slices.Contains(memberTypes, mType) {
+			continue
 		}
+		member.AddStream(stream)
 	}
 }
 
-func (r *Room) RemoveStream(stream Stream) {
+func (r *Room) RemoveStream(stream Stream) error {
+	// Lock in consistent order with other methods
+	r.membersMu.Lock()
 	r.streamsMu.Lock()
 	defer r.streamsMu.Unlock()
-	delete(r.Streams, stream.ID())
+	defer r.membersMu.Unlock()
+
+	// Check if stream exists first
+	if _, exists := r.streams[stream.ID()]; !exists {
+		return errors.New("stream not found")
+	}
+
+	// Remove stream from all members
+	var errs []error
+	for _, member := range r.members {
+		if err := member.RemoveStream(stream); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	// Remove the stream regardless of member errors
+	delete(r.streams, stream.ID())
+
+	// Return combined errors if any occurred
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+	return nil
 }
 
-func (r *Room) GetStreams() map[string]Stream {
+func (r *Room) GetStreams() map[string]RoomStream {
 	r.streamsMu.Lock()
 	defer r.streamsMu.Unlock()
-	return maps.Clone(r.Streams)
+	return maps.Clone(r.streams)
 }
 
 func (r *Room) Close() {
 	r.streamsMu.Lock()
 	defer r.streamsMu.Unlock()
-	r.Streams = make(map[string]Stream)
+	r.streams = make(map[string]RoomStream)
 
 	r.membersMu.Lock()
 	defer r.membersMu.Unlock()
-	r.Members = make(map[string]Member)
+	r.members = make(map[string]Member)
 }

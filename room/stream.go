@@ -9,35 +9,23 @@ type Stream interface {
 	ID() string
 }
 
-type RoomStream struct {
+type BaseRoomStream struct {
 	Stream
-	id string
+	id     string
+	closed bool
 }
 
-func (rt *RoomStream) ID() string {
+func NewBaseRoomStream(id string) *BaseRoomStream {
+	return &BaseRoomStream{
+		id:     id,
+		closed: false,
+	}
+}
+
+func (rt *BaseRoomStream) ID() string {
 	return rt.id
 }
 
-type RoomVideoStream struct {
-	RoomStream
-}
-
-func NewRoomVideoStream(id string) *RoomVideoStream {
-	return &RoomVideoStream{
-		RoomStream: RoomStream{
-			id: id,
-		},
-	}
-}
-
-type RoomAudioStream struct {
-	RoomStream
-}
-
-func NewRoomAudioStream(id string) *RoomAudioStream {
-	return &RoomAudioStream{
-		RoomStream: RoomStream{
-			id: id,
-		},
-	}
+func (rt *BaseRoomStream) Close() {
+	rt.closed = true
 }
