@@ -10,7 +10,6 @@ jobs:
   deploy:
     name: Deploy to Go Proxy
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/production'
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
